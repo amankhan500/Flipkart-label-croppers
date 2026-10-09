@@ -1,48 +1,417 @@
-  <!DOCTYPE html><html lang="en">
+<!DOCTYPE html>
+<html lang="hi">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Free Flipkart Label Cropper</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #f3f6fa;
-      text-align: center;
-      padding: 20px;
-    }
-    .box {
-      background: white;
-      max-width: 500px;
-      margin: 40px auto;
-      padding: 25px;
-      border-radius: 15px;
-      box-shadow: 0 3px 15px #ddd;
-    }
-    h1 { color: #174ea6; }
-    input, button {
-      margin: 12px;
-      padding: 12px;
-      font-size: 16px;
-    }
-    button {
-      background: #174ea6;
-      color: white;
-      border: 0;
-      border-radius: 8px;
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Free Shipping Label Cropper</title>
+
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:16px;background:#f1f5f9;font-family:Arial,sans-serif;color:#172033}
+.box{max-width:700px;margin:auto;background:white;padding:20px;border-radius:14px}
+h1{color:#174ea6;font-size:26px}
+button,input,select{padding:11px;margin:6px 0;max-width:100%}
+button{background:#174ea6;color:white;border:0;border-radius:6px}
+canvas{max-width:100%;height:auto;display:block}
+#stage{position:relative;display:inline-block;max-width:100%;touch-action:pan-y}
+#pdfCanvas{width:100%;height:auto}
+#selection{position:absolute;border:2px dashed red;background:#ff000022;display:none;pointer-events:none}
+.small{font-size:13px;color:#555;line-height:1.5}
+</style>
 </head>
+
 <body>
-  <div class="box">
-    <h1>Flipkart Label Cropper</h1>
-    <p>Free Shipping Label Tool</p>
-    <p>Upload your shipping label PDF to get started.</p>
-    <input type="file" accept=".pdf" id="pdfFile">
-    <br>
-    <button onclick="alert('PDF cropping feature will be added next!')">
-      Crop Label
-    </button>
-    <p>Free tool for online sellers</p>
-  </div>
+<div class="box">
+<h1>Flipkart Label Cropper</h1>
+<p>Free PDF Shipping Label Crop Tool</p>
+
+<label>Select shipping PDF:</label><br>
+<input type="file" id="file" accept=".pdf,application/pdf">
+
+<p>
+<button id="prev">Previous</button>
+<span id="info">No PDF selected</span>
+<button id="next">Next</button>
+</p>
+
+<p class="small">
+PDF khulne ke baad label ke ek kone par touch karke drag karein,
+aur label ka poora area select karein.
+</p>
+
+<div id="stage">
+<canvas id="pdfCanvas"></canvas>
+<div id="selection"></div>
+</div>
+
+<p>
+<button id="reset">Reset selection</button>
+</p>
+
+<label>Output size:</label><br>
+<select id="size">
+<option value="4x6">4 × 6 inch (thermal printer)</option>
+<option value="6x4">6 × 4 inch (landscape)</option>
+</select>
+<br>
+<button id="crop">Crop selected label</button>
+<button id="print" disabled>Print label</button>
+
+<div id="result"></div>
+<p id="status" class="small">Upload a PDF to begin.</p>
+<p class="small">
+PDF processing is done in your browser. Check the crop carefully
+before printing so that shipping addresses and barcodes are not cut off.
+</p>
+</div>
+
+<script type="module">
+import * as pdfjsLib from
+'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs';
+
+const fileInput=document.getElementById('file');
+const canvas=document.getElementById('pdfCanvas');
+const ctx=canvas.getContext('2d');
+const stage=document.getElementById('stage');
+const selection=document.getElementById('selection');
+const status=document.getElementById('status');
+const info=document.getElementById('info');
+
+let pdf=null,pageNum=1,scale=1,dragging=false,start=null,rect=null,cropped=null;
+
+async function renderPage(){
+ if(!pdf)return;
+ status.textContent='Loading page...';
+ try{
+  const page=await pdf.getPage(pageNum);
+  const viewport=page.getViewport({scale:1.5});
+  canvas.width=viewport.width;
+  canvas.height=viewport.height;
+  await page.render({canvasContext:ctx,viewport}).promise;
+  stage.style.width='100%';
+  selection.style.display='none';
+  rect=null;
+  cropped=null;
+  document.getElementById('result').replaceChildren();
+  document.getElementById('print').disabled=true;
+  info.textContent=`Page ${pageNum} / ${pdf.numPages}`;
+  status.textContent='Drag over the label to select its area.';
+ }catch(e){
+  status.textContent='Could not render PDF page.';
+ }
+}
+
+fileInput.addEventListener('change',async()=>{
+ try{
+  const f=fileInput.files[0];
+  if(!f)return;
+  if(f.size>25*1024*1024)throw Error('PDF must be under 25 MB.');
+  status.textContent='Opening PDF...';
+  pdf=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;
+  pageNum=1;
+  await renderPage();
+ }catch(e){
+  status.textContent='PDF error: '+e.message;
+ }
+});
+
+document.getElementById('prev').onclick=async()=>{
+ if(pdf&&pageNum>1){pageNum--;await renderPage();}
+};
+document.getElementById('next').onclick=async()=>{
+ if(pdf&&pageNum<pdf.numPages){pageNum++;await renderPage();}
+};
+
+function point(e){
+ const b=canvas.getBoundingClientRect();
+ return {
+  x:Math.max(0,Math.min(canvas.width,(e.clientX-b.left)*canvas.width/b.width)),
+  y:Math.max(0,Math.min(canvas.height,(e.clientY-b.top)*canvas.height/b.height))
+ };
+}
+
+canvas.addEventListener('pointerdown',e=>{
+ if(!pdf)return;
+ e.preventDefault();
+ canvas.setPointerCapture(e.pointerId);
+ start=point(e);
+ rect={x:start.x,y:start.y,w:0,h:0};
+ dragging=true;
+ selection.style.display='block';
+});
+
+canvas.addEventListener('pointermove',e=>{
+ if(!dragging||!start)return;
+ const p=point(e);
+ rect={
+  x:Math.min(start.x,p.x),y:Math.min(start.y,p.y),
+  w:Math.abs(p.x-start.x),h:Math.abs(p.y-start.y)
+ };
+ const b=canvas.getBoundingClientRect();
+ selection.style.left=(rect.x/canvas.width*b.width)+'px';
+ selection.style.top=(rect.y/canvas.height*b.height)+'px';
+ selection.style.width=(rect.w/canvas.width*b.width)+'px';
+ selection.style.height=(rect.h/canvas.height*b.height)+'px';
+});
+
+function endDrag(){dragging=false;start=null;}
+canvas.addEventListener('pointerup',endDrag);
+canvas.addEventListener('pointercancel',endDrag);
+
+document.getElementById('reset').onclick=()=>{
+ rect=null;selection.style.display='none';
+ status.textContent='Selection reset. Select the label again.';
+};
+
+document.getElementById('crop').onclick=()=>{
+ if(!rect||rect.w<10||rect.h<10){
+  status.textContent='Please select the label area first.';
+  return;
+ }
+ cropped=document.createElement('canvas');
+ const ratio=document.getElementById('size').value;
+ const w=ratio==='4x6'?1200:1800;
+ const h=ratio==='4x6'?1800:1200;
+ cropped.width=w;cropped.height=h;
+ const c=cropped.getContext('2d');
+ c.fillStyle='white';c.fillRect(0,0,w,h);
+ c.drawImage(canvas,rect.x,rect.y,rect.w,rect.h,0,0,w,h);
+ const img=document.createElement('img');
+ img.src=cropped.toDataURL('image/png');
+ img.style.cssText='width:100%;height:auto;margin-top:12px';
+ const out=document.getElementById('result');
+ out.replaceChildren();
+ out.appendChild(document.createTextNode('Cropped label preview:'));
+ out.appendChild(img);
+ document.getElementById('print').disabled=false;
+ status.textContent='Crop ready. Check the preview before printing.';
+};
+
+document.getElementById('print').onclick=()=>{
+ if(!cropped)return;
+ const landscape=document.getElementById('size').value==='6x4';
+ const w=landscape?'6in':'4in',h=landscape?'4in':'6in';
+ const win=window.open('','_blank');
+ if(!win){status.textContent='Allow pop-ups to print.';return;}
+ const style=win.document.createElement('style');
+ style.textContent=`@page{size:${w} ${h};margin:0}html,body{margin:0;width:100%;height:100%}img{width:100%;height:100%;object-fit:contain}`;
+ win.document.head.appendChild(style);
+ const img=win.document.createElement('img');
+ img.src=cropped.toDataURL('image/png');
+ win.document.body.appendChild(img);
+ img.onload=()=>win.print();
+};
+</script>
 </body>
-  </html>
+</html><!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Free Shipping Label Cropper</title>
+
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:16px;background:#f1f5f9;font-family:Arial,sans-serif;color:#172033}
+.box{max-width:700px;margin:auto;background:white;padding:20px;border-radius:14px}
+h1{color:#174ea6;font-size:26px}
+button,input,select{padding:11px;margin:6px 0;max-width:100%}
+button{background:#174ea6;color:white;border:0;border-radius:6px}
+canvas{max-width:100%;height:auto;display:block}
+#stage{position:relative;display:inline-block;max-width:100%;touch-action:pan-y}
+#pdfCanvas{width:100%;height:auto}
+#selection{position:absolute;border:2px dashed red;background:#ff000022;display:none;pointer-events:none}
+.small{font-size:13px;color:#555;line-height:1.5}
+</style>
+</head>
+
+<body>
+<div class="box">
+<h1>Flipkart Label Cropper</h1>
+<p>Free PDF Shipping Label Crop Tool</p>
+
+<label>Select shipping PDF:</label><br>
+<input type="file" id="file" accept=".pdf,application/pdf">
+
+<p>
+<button id="prev">Previous</button>
+<span id="info">No PDF selected</span>
+<button id="next">Next</button>
+</p>
+
+<p class="small">
+PDF khulne ke baad label ke ek kone par touch karke drag karein,
+aur label ka poora area select karein.
+</p>
+
+<div id="stage">
+<canvas id="pdfCanvas"></canvas>
+<div id="selection"></div>
+</div>
+
+<p>
+<button id="reset">Reset selection</button>
+</p>
+
+<label>Output size:</label><br>
+<select id="size">
+<option value="4x6">4 × 6 inch (thermal printer)</option>
+<option value="6x4">6 × 4 inch (landscape)</option>
+</select>
+<br>
+<button id="crop">Crop selected label</button>
+<button id="print" disabled>Print label</button>
+
+<div id="result"></div>
+<p id="status" class="small">Upload a PDF to begin.</p>
+<p class="small">
+PDF processing is done in your browser. Check the crop carefully
+before printing so that shipping addresses and barcodes are not cut off.
+</p>
+</div>
+
+<script type="module">
+import * as pdfjsLib from
+'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs';
+
+const fileInput=document.getElementById('file');
+const canvas=document.getElementById('pdfCanvas');
+const ctx=canvas.getContext('2d');
+const stage=document.getElementById('stage');
+const selection=document.getElementById('selection');
+const status=document.getElementById('status');
+const info=document.getElementById('info');
+
+let pdf=null,pageNum=1,scale=1,dragging=false,start=null,rect=null,cropped=null;
+
+async function renderPage(){
+ if(!pdf)return;
+ status.textContent='Loading page...';
+ try{
+  const page=await pdf.getPage(pageNum);
+  const viewport=page.getViewport({scale:1.5});
+  canvas.width=viewport.width;
+  canvas.height=viewport.height;
+  await page.render({canvasContext:ctx,viewport}).promise;
+  stage.style.width='100%';
+  selection.style.display='none';
+  rect=null;
+  cropped=null;
+  document.getElementById('result').replaceChildren();
+  document.getElementById('print').disabled=true;
+  info.textContent=`Page ${pageNum} / ${pdf.numPages}`;
+  status.textContent='Drag over the label to select its area.';
+ }catch(e){
+  status.textContent='Could not render PDF page.';
+ }
+}
+
+fileInput.addEventListener('change',async()=>{
+ try{
+  const f=fileInput.files[0];
+  if(!f)return;
+  if(f.size>25*1024*1024)throw Error('PDF must be under 25 MB.');
+  status.textContent='Opening PDF...';
+  pdf=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;
+  pageNum=1;
+  await renderPage();
+ }catch(e){
+  status.textContent='PDF error: '+e.message;
+ }
+});
+
+document.getElementById('prev').onclick=async()=>{
+ if(pdf&&pageNum>1){pageNum--;await renderPage();}
+};
+document.getElementById('next').onclick=async()=>{
+ if(pdf&&pageNum<pdf.numPages){pageNum++;await renderPage();}
+};
+
+function point(e){
+ const b=canvas.getBoundingClientRect();
+ return {
+  x:Math.max(0,Math.min(canvas.width,(e.clientX-b.left)*canvas.width/b.width)),
+  y:Math.max(0,Math.min(canvas.height,(e.clientY-b.top)*canvas.height/b.height))
+ };
+}
+
+canvas.addEventListener('pointerdown',e=>{
+ if(!pdf)return;
+ e.preventDefault();
+ canvas.setPointerCapture(e.pointerId);
+ start=point(e);
+ rect={x:start.x,y:start.y,w:0,h:0};
+ dragging=true;
+ selection.style.display='block';
+});
+
+canvas.addEventListener('pointermove',e=>{
+ if(!dragging||!start)return;
+ const p=point(e);
+ rect={
+  x:Math.min(start.x,p.x),y:Math.min(start.y,p.y),
+  w:Math.abs(p.x-start.x),h:Math.abs(p.y-start.y)
+ };
+ const b=canvas.getBoundingClientRect();
+ selection.style.left=(rect.x/canvas.width*b.width)+'px';
+ selection.style.top=(rect.y/canvas.height*b.height)+'px';
+ selection.style.width=(rect.w/canvas.width*b.width)+'px';
+ selection.style.height=(rect.h/canvas.height*b.height)+'px';
+});
+
+function endDrag(){dragging=false;start=null;}
+canvas.addEventListener('pointerup',endDrag);
+canvas.addEventListener('pointercancel',endDrag);
+
+document.getElementById('reset').onclick=()=>{
+ rect=null;selection.style.display='none';
+ status.textContent='Selection reset. Select the label again.';
+};
+
+document.getElementById('crop').onclick=()=>{
+ if(!rect||rect.w<10||rect.h<10){
+  status.textContent='Please select the label area first.';
+  return;
+ }
+ cropped=document.createElement('canvas');
+ const ratio=document.getElementById('size').value;
+ const w=ratio==='4x6'?1200:1800;
+ const h=ratio==='4x6'?1800:1200;
+ cropped.width=w;cropped.height=h;
+ const c=cropped.getContext('2d');
+ c.fillStyle='white';c.fillRect(0,0,w,h);
+ c.drawImage(canvas,rect.x,rect.y,rect.w,rect.h,0,0,w,h);
+ const img=document.createElement('img');
+ img.src=cropped.toDataURL('image/png');
+ img.style.cssText='width:100%;height:auto;margin-top:12px';
+ const out=document.getElementById('result');
+ out.replaceChildren();
+ out.appendChild(document.createTextNode('Cropped label preview:'));
+ out.appendChild(img);
+ document.getElementById('print').disabled=false;
+ status.textContent='Crop ready. Check the preview before printing.';
+};
+
+document.getElementById('print').onclick=()=>{
+ if(!cropped)return;
+ const landscape=document.getElementById('size').value==='6x4';
+ const w=landscape?'6in':'4in',h=landscape?'4in':'6in';
+ const win=window.open('','_blank');
+ if(!win){status.textContent='Allow pop-ups to print.';return;}
+ const style=win.document.createElement('style');
+ style.textContent=`@page{size:${w} ${h};margin:0}html,body{margin:0;width:100%;height:100%}img{width:100%;height:100%;object-fit:contain}`;
+ win.document.head.appendChild(style);
+ const img=win.document.createElement('img');
+ img.src=cropped.toDataURL('image/png');
+ win.document.body.appendChild(img);
+ img.onload=()=>win.print();
+};
+</script>
+</body>
+</html>
